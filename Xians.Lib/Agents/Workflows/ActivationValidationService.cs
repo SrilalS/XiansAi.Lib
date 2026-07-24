@@ -116,7 +116,7 @@ internal static class ActivationValidationService
             return ActivationCheckStatus.Active;
         }
 
-        var errorContent = await response.Content.ReadAsStringAsync();
+        var errorContent = await response.Content.ReadAsStringAsync(cancellationToken);
 
         switch (response.StatusCode)
         {

@@ -62,6 +62,12 @@ public class XiansAgent
     public WebhookCollection Webhooks { get; private set; }
 
     /// <summary>
+    /// Gets the tenant-scoped accessor for inspecting other agents in the current tenant
+    /// (existence and activation status). Use <c>agent.Tenant.Agent("Other")</c>.
+    /// </summary>
+    public TenantAgents Tenant { get; private set; }
+
+    /// <summary>
     /// Gets the name of the agent.
     /// </summary>
     public string Name { get; private set; }
@@ -147,6 +153,7 @@ public class XiansAgent
         Schedules = new ScheduleCollection(this, TemporalService);
         Secrets = new SecretVaultCollection(this);
         Webhooks = new WebhookCollection(this);
+        Tenant = new TenantAgents(this);
 
         // Register this agent in the static context
         XiansContext.RegisterAgent(this);
@@ -281,6 +288,7 @@ public class XiansAgent
     /// Checks whether this agent has an active activation of the given name in the current tenant.
     /// The activation name is resolved automatically from the current <see cref="XiansContext"/> when
     /// running inside a workflow/activity; pass it explicitly otherwise.
+    /// Delegates to <see cref="TenantAgents.Agent(string)"/> for the shared cross-agent check path.
     /// </summary>
     /// <param name="activationName">Optional activation name. Defaults to the current activation from context.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
@@ -293,21 +301,12 @@ public class XiansAgent
         string? activationName = null,
         CancellationToken cancellationToken = default)
     {
-        if (HttpService == null)
-        {
-            throw new InvalidOperationException("HTTP service is not available. Cannot check activation status.");
-        }
-
         var resolvedActivation = activationName ?? XiansContext.SafeIdPostfix
             ?? throw new InvalidOperationException(
                 "No activation name provided and none is available from the current context. " +
                 "Call from within a workflow/activity, or pass an explicit activationName.");
 
-        var client = await HttpService.GetHealthyClientAsync();
-        var tenantId = XiansContext.SafeTenantId ?? Options?.CertificateTenantId;
-
-        return await ActivationValidationService.CheckActivationStatusAsync(
-            client, Name, resolvedActivation, tenantId, SystemScoped, cancellationToken);
+        return await Tenant.Agent(Name).GetActivationStatusAsync(resolvedActivation, cancellationToken);
     }
 
     /// <summary>
