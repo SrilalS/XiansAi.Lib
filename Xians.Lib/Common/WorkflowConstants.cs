@@ -89,6 +89,10 @@ public static class WorkflowConstants
         public const string ActivationWorkflowInputs = "api/agent/activation/workflow-inputs";
         /// <summary>Endpoint to check whether an activation exists and is active for an agent in the current tenant.</summary>
         public const string ActivationExists = "api/agent/activation/exists";
+        /// <summary>Base path for listing/creating activations (and activate/deactivate by id) in the calling certificate's tenant.</summary>
+        public const string Activations = "api/agent/activation";
+        /// <summary>Endpoint to check whether an agent exists in the calling certificate's tenant.</summary>
+        public const string AgentExists = "api/agent/agents/exists";
         /// <summary>Base path for agent builtin webhook management (create, list, delete) for the calling agent's tenant.</summary>
         public const string AgentWebhooks = "api/agent/webhooks";
     }
