@@ -89,7 +89,7 @@ public class ScheduleCollection
         catch (Temporalio.Exceptions.RpcException ex) when (
             ex.Message?.Contains("not found", StringComparison.OrdinalIgnoreCase) == true)
         {
-            _logger.LogWarning("Schedule '{ScheduleName}' not found", scheduleName);
+            _logger.LogDebug("Schedule '{ScheduleName}' not found", scheduleName);
             throw new ScheduleNotFoundException(scheduleName, ex);
         }
         catch (Exception ex)
