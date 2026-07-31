@@ -587,13 +587,14 @@ public static class SubWorkflowService
 
     /// <summary>
     /// Builds search attributes for child/sub-workflow by inheriting parent attributes when in workflow context.
-    /// Works both in workflow context (inherits all) and outside workflow context (builds minimal).
+    /// Works both in workflow context (inherits all except server-reserved Temporal* attributes, which the
+    /// server stamps itself and rejects in start requests) and outside workflow context (builds minimal).
     /// This is a shared method used by both SubWorkflowOptions and client-based workflow starting.
     /// </summary>
     internal static Temporalio.Common.SearchAttributeCollection? BuildInheritedSearchAttributes(string tenantId, string agentName)
     {
         if (Workflow.InWorkflow)
-            return Workflow.TypedSearchAttributes;
+            return WorkflowMetadataResolver.SanitizeForStart(Workflow.TypedSearchAttributes);
 
         var idPostfix = XiansContext.TryGetIdPostfix() ?? string.Empty;
         var participantId = XiansContext.TryGetParticipantId() ?? string.Empty;
