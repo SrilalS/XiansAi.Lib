@@ -319,9 +319,49 @@ public class OrderProcessorWorkflow
 |------|----------|-----|
 | **Chat** | Human-readable text | `ReplyAsync()`, `SendChatAsync()` |
 | **Data** | Structured data | `ReplyWithDataAsync()`, `SendDataAsync()` |
+| **File** | Attachments (GridFS refs) | `SendFileAsync()`, or `ReplyAsync(text, file)` |
 
 **Chat messages** are displayed directly to users.  
 **Data messages** may trigger special UI rendering or be processed by client apps.
+
+### File messages
+
+Send files from a message handler (`OnUserChatMessage`, `OnFileUpload`, …) or from an activity. Do **not** call `SendFileAsync` from workflow code — file bytes cannot pass through Temporal payloads.
+
+| Limit | Value |
+|-------|--------|
+| Files per message | 5 |
+| Size per file | 10 MB |
+| Combined size | 20 MB |
+
+```csharp
+workflow.OnUserChatMessage(async (context) =>
+{
+    // Reply + PDF in one bubble (Agent Studio shows caption, then filename + download icon)
+    await context.ReplyAsync(
+        "Here is your report.",
+        UploadedFile.FromBytes(pdfBytes, "report.pdf", "application/pdf"));
+
+    // Same thing via SendFileAsync
+    await context.SendFileAsync(
+        content: pdfBytes,
+        fileName: "report.pdf",
+        contentType: "application/pdf",
+        text: "Here is your report.");
+});
+
+workflow.OnFileUpload(async (context) =>
+{
+    // Forward a file the user just uploaded (has FileId after hydrate — not re-uploaded)
+    await context.SendFileAsync(context.Message.Files, text: "Echoing your upload");
+});
+```
+
+`SkipResponse` suppresses upload and the outbound message, same as `ReplyAsync`.
+
+Requires a server version that exposes `POST /api/agent/files` and `POST /api/agent/conversation/outbound/file`.
+
+Users download files from Agent Studio via `/api/messaging/files/{fileId}` (session cookie → Admin GET). Downloads are tenant-scoped. Stored files expire after **180 days**; chips for expired or deleted files return 404.
 
 ---
 
@@ -536,6 +576,7 @@ await platform.RunAsync();
 | Pattern | Class | Method | Use Case |
 |---------|-------|--------|----------|
 | **Reply to user** | `UserMessageContext` | `ReplyAsync()` | User sent message |
+| **Send file** | `UserMessageContext` | `SendFileAsync()` | Handler/activity only |
 | **Reply with data** | `UserMessageContext` | `ReplyWithDataAsync()` | Include structured data |
 | **Proactive chat** | `UserMessaging` | `SendChatAsync()` | Agent initiates |
 | **Proactive data** | `UserMessaging` | `SendDataAsync()` | Agent sends data |

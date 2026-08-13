@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Temporalio.Workflows;
 using Xians.Lib.Agents.Core;
 using Xians.Lib.Temporal;
 using Xians.Lib.Temporal.Workflows.Messaging;
@@ -64,6 +65,31 @@ internal class MessageActivityExecutor : ContextAwareActivityExecutor<MessageAct
             act => act.GetLastTaskIdAsync(request),
             svc => svc.GetLastTaskIdAsync(request),
             operationName: "GetLastTaskId");
+    }
+
+    /// <summary>
+    /// Sends files using direct HTTP. Never executed as a Temporal activity because file bytes
+    /// cannot pass through Temporal payloads.
+    /// </summary>
+    public async Task SendFileAsync(SendFileRequest request)
+    {
+        if (Workflow.InWorkflow)
+        {
+            throw new InvalidOperationException(
+                "SendFileAsync cannot run inside Temporal workflow code because file bytes " +
+                "cannot pass through Temporal payloads. Call it from a message handler " +
+                "(OnUserChatMessage, OnFileUpload, …) or from an activity.");
+        }
+
+        if (_agent.HttpService == null)
+        {
+            throw new InvalidOperationException(
+                "Message service is not available. Ensure HTTP service is configured for the agent.");
+        }
+
+        var logger = Common.Infrastructure.LoggerFactory.CreateLogger<FileSendService>();
+        var service = new FileSendService(_agent.HttpService.Client, logger);
+        await service.SendAsync(request);
     }
 }
 

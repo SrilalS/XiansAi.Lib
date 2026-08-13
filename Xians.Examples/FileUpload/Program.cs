@@ -1,6 +1,8 @@
 using Xians.Lib.Agents.Core;
+using Xians.Lib.Agents.Messaging;
 using DotNetEnv;
 using Microsoft.Extensions.Logging;
+using System.Text;
 
 Env.Load();
 
@@ -62,8 +64,10 @@ conversationalWorkflow.OnFileUpload(async (context) =>
             $"{(file.ContentType != null ? $", {file.ContentType}" : "")}) saved to {savePath}");
     }
 
+    var receipt = Encoding.UTF8.GetBytes(string.Join(Environment.NewLine, summaries));
     await context.ReplyAsync(
-        $"Received {files.Count} file(s) with message '{context.Message.Text}' successfully! {string.Join(", ", summaries)}");
+        $"Received {files.Count} file(s) with message '{context.Message.Text}' successfully! {string.Join(", ", summaries)}",
+        UploadedFile.FromBytes(receipt, "upload-receipt.txt", "text/plain"));
 });
 
 await xiansAgent.RunAllAsync();

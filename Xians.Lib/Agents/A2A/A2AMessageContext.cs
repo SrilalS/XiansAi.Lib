@@ -132,6 +132,14 @@ public class A2AMessageContext : UserMessageContext
     }
 
     /// <summary>
+    /// File send is not supported for A2A messages.
+    /// </summary>
+    public override Task SendFileAsync(IReadOnlyList<UploadedFile> files, string? text = null)
+    {
+        throw new NotSupportedException("Sending files is not supported for A2A messages.");
+    }
+
+    /// <summary>
     /// Chat history is not available for A2A messages.
     /// Returns an empty list since A2A messages are stateless one-off requests.
     /// </summary>

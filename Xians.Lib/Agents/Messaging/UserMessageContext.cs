@@ -90,6 +90,32 @@ public class UserMessageContext
     }
 
     /// <summary>
+    /// Sends a text reply with a file in the same conversation message (one Agent Studio bubble).
+    /// Equivalent to <see cref="SendFileAsync(UploadedFile, string?)"/>. Handler or activity only — not workflow code.
+    /// </summary>
+    public virtual Task ReplyAsync(string text, UploadedFile file)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        return SendFileAsync(file, text);
+    }
+
+    /// <summary>
+    /// Sends a text reply, optionally with files in the same conversation message (one Agent Studio bubble).
+    /// When <paramref name="files"/> is null or empty, this is a normal chat reply.
+    /// When files are present, equivalent to <see cref="SendFileAsync(IReadOnlyList{UploadedFile}, string?)"/>.
+    /// Handler or activity only when sending files — not workflow code.
+    /// </summary>
+    public virtual Task ReplyAsync(string text, IReadOnlyList<UploadedFile>? files)
+    {
+        if (files is { Count: > 0 })
+        {
+            return SendFileAsync(files, text);
+        }
+
+        return ReplyAsync(text);
+    }
+
+    /// <summary>
     /// Sends a chat reply with both text and data to the user.
     /// Works in both workflow and activity contexts.
     /// </summary>
@@ -134,6 +160,72 @@ public class UserMessageContext
     public virtual async Task SendToolExecAsync(object data, string? content = null)
     {
         await SendMessageToUserAsync(content ?? string.Empty, data, "tool");
+    }
+
+    /// <summary>
+    /// Sends a file the agent produced (raw bytes) to the user.
+    /// Must be called from a message handler or activity, not from workflow code.
+    /// </summary>
+    public virtual Task SendFileAsync(
+        byte[] content,
+        string fileName,
+        string? contentType = null,
+        string? text = null)
+    {
+        return SendFileAsync(UploadedFile.FromBytes(content, fileName, contentType), text);
+    }
+
+    /// <summary>
+    /// Sends a single file to the user. If <see cref="UploadedFile.FileId"/> is set, the file is
+    /// forwarded by reference and not re-uploaded.
+    /// Must be called from a message handler or activity, not from workflow code.
+    /// </summary>
+    public virtual Task SendFileAsync(UploadedFile file, string? text = null)
+    {
+        ArgumentNullException.ThrowIfNull(file);
+        return SendFileAsync(new[] { file }, text);
+    }
+
+    /// <summary>
+    /// Sends one or more files to the user (maximum 5). Files with a <see cref="UploadedFile.FileId"/>
+    /// are forwarded without a second GridFS write; others are uploaded first.
+    /// Must be called from a message handler or activity, not from workflow code.
+    /// </summary>
+    public virtual async Task SendFileAsync(IReadOnlyList<UploadedFile> files, string? text = null)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+
+        if (SkipResponse)
+        {
+            _logger.LogDebug(
+                "Skipping file send due to SkipResponse flag: ParticipantId={ParticipantId}, RequestId={RequestId}",
+                Message.ParticipantId,
+                Message.RequestId);
+            return;
+        }
+
+        if (_executor == null)
+        {
+            throw new InvalidOperationException("MessageActivityExecutor is not available. This typically means the context was created outside a workflow and no agent is registered.");
+        }
+
+        var request = new SendFileRequest
+        {
+            ParticipantId = Message.ParticipantId,
+            WorkflowId = _cachedWorkflowId ?? string.Empty,
+            WorkflowType = XiansContext.WorkflowType,
+            RequestId = Message.RequestId,
+            Scope = Message.Scope,
+            ThreadId = Message.ThreadId,
+            Authorization = Message.Authorization,
+            Hint = Message.Hint,
+            Origin = null,
+            TenantId = Message.TenantId,
+            Text = text ?? string.Empty,
+            Files = files
+        };
+
+        await _executor.SendFileAsync(request);
     }
 
     /// <summary>
