@@ -14,13 +14,15 @@ namespace Xians.Lib.Tests.UnitTests.Agents;
 [Collection("Sequential")]
 public class UserMessageContextReplyFileTests : IDisposable
 {
+    private readonly HttpClient _httpClient;
+
     public UserMessageContextReplyFileTests()
     {
         XiansContext.CleanupForTests();
 
-        var http = new HttpClient { BaseAddress = new Uri("http://localhost") };
+        _httpClient = new HttpClient { BaseAddress = new Uri("http://localhost") };
         var httpService = new Mock<IHttpClientService>();
-        httpService.Setup(x => x.Client).Returns(http);
+        httpService.Setup(x => x.Client).Returns(_httpClient);
         var temporal = new Mock<ITemporalClientService>();
         temporal.Setup(x => x.IsConnectionHealthy()).Returns(true);
 
@@ -39,7 +41,11 @@ public class UserMessageContextReplyFileTests : IDisposable
             null);
     }
 
-    public void Dispose() => XiansContext.CleanupForTests();
+    public void Dispose()
+    {
+        _httpClient.Dispose();
+        XiansContext.CleanupForTests();
+    }
 
     [Fact]
     public async Task ReplyAsync_WithFile_SendsFileWithCaption()
