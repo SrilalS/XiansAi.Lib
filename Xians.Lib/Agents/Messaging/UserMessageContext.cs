@@ -194,7 +194,8 @@ public class UserMessageContext
     /// Sends one or more files to the user (maximum 5). Files with a <see cref="UploadedFile.FileId"/>
     /// are forwarded without a second GridFS write; others are uploaded first.
     /// Works in both workflow and activity contexts, but from workflow code the bytes of new files
-    /// pass through a Temporal payload and are therefore limited to roughly 1 MB in total.
+    /// pass through a Temporal payload and are therefore limited to 1,500,000 base64 characters in
+    /// total, which is roughly 1.1 MB of file bytes.
     /// </summary>
     public virtual async Task SendFileAsync(IReadOnlyList<UploadedFile> files, string? text = null)
     {

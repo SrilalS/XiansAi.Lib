@@ -74,8 +74,9 @@ public class MessagingHelper
     /// <returns>A task representing the asynchronous operation.</returns>
     /// <remarks>
     /// From workflow code the send runs as a Temporal activity, so the bytes of new files are
-    /// serialized into workflow history and are limited to roughly 1 MB in total. Files that already
-    /// live on the platform are passed by reference and are not affected.
+    /// serialized into workflow history and are limited to 1,500,000 base64 characters in total,
+    /// which is roughly 1.1 MB of file bytes. Files that already live on the platform are passed by
+    /// reference and are not affected.
     /// </remarks>
     /// <exception cref="InvalidOperationException">Thrown when not in workflow or activity context.</exception>
     public async Task SendFileAsync(
