@@ -387,6 +387,8 @@ public class ReportWorkflow
 
 Pass uploads into a workflow as references only (`new UploadedFile(null, fileName, contentType, fileSize, fileId)`) so the workflow argument itself stays small. See `Xians.Examples/FileUpload` for a runnable version of both paths.
 
+Two details of the workflow path are worth knowing. Attachments are validated in workflow code before any activity is scheduled, so exceeding a limit fails the workflow at once with a non-retryable error instead of retrying a send that cannot succeed. And the upload runs as its own activity, so its result is in workflow history: if posting the message fails and Temporal retries, the stored files are reused rather than uploaded a second time.
+
 Requires a server version that exposes `POST /api/agent/files` and `POST /api/agent/conversation/outbound/file`.
 
 Users download files from Agent Studio via `/api/messaging/files/{fileId}` (session cookie → Admin GET). Downloads are tenant-scoped. Stored files expire after **180 days**; chips for expired or deleted files return 404.

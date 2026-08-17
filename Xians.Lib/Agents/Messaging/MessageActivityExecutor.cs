@@ -77,18 +77,46 @@ internal class MessageActivityExecutor : ContextAwareActivityExecutor<MessageAct
 
     /// <summary>
     /// Sends files using context-aware execution.
-    /// From workflow code the request travels to the activity as a Temporal payload, so inline
-    /// file bytes are trimmed and size-checked first.
     /// </summary>
+    /// <remarks>
+    /// Outside workflow code this is a single service call: upload then post, over HTTP.
+    /// <para>
+    /// From workflow code the upload and the outbound message run as two separate activities. The
+    /// upload result is recorded in workflow history, so when posting the message fails and Temporal
+    /// retries, the already-stored bytes are reused rather than uploaded a second time. A combined
+    /// activity would leave an orphaned copy of every byte behind on each attempt.
+    /// </para>
+    /// </remarks>
     public async Task SendFileAsync(SendFileRequest request)
     {
-        var inWorkflow = Workflow.InWorkflow;
-        var effectiveRequest = inWorkflow ? PrepareForActivityPayload(request) : request;
+        if (!Workflow.InWorkflow)
+        {
+            await ExecuteAsync(
+                act => act.SendFileAsync(request),
+                svc => svc.SendFileAsync(request),
+                operationName: "SendFile");
+            return;
+        }
+
+        var prepared = PrepareForActivityPayload(request);
+        var options = MessageActivityOptions.GetStandardOptions(request.WorkflowType);
+
+        var toPost = prepared;
+        if (prepared.Files.Any(file => string.IsNullOrEmpty(file.FileId)))
+        {
+            var references = await ExecuteAsync(
+                act => act.UploadFilesAsync(prepared),
+                svc => svc.UploadFilesAsync(prepared),
+                options,
+                operationName: "UploadFiles");
+
+            toPost = WithFiles(prepared, references);
+        }
 
         await ExecuteAsync(
-            act => act.SendFileAsync(effectiveRequest),
-            svc => svc.SendFileAsync(effectiveRequest),
-            options: inWorkflow ? MessageActivityOptions.GetStandardOptions(request.WorkflowType) : null,
+            act => act.SendFileAsync(toPost),
+            svc => svc.SendFileAsync(toPost),
+            options,
             operationName: "SendFile");
     }
 
@@ -97,8 +125,25 @@ internal class MessageActivityExecutor : ContextAwareActivityExecutor<MessageAct
     /// platform already stores travel as references (their bytes would be re-uploaded for nothing),
     /// and the remaining inline content is bounded.
     /// </summary>
+    /// <remarks>
+    /// Also runs the full attachment validation. Doing it here, in workflow code, turns bad input
+    /// into an immediate workflow failure with an actionable message. Left to the activity it would
+    /// instead burn the whole retry budget re-attempting a send that can never succeed.
+    /// </remarks>
     internal static SendFileRequest PrepareForActivityPayload(SendFileRequest request)
     {
+        try
+        {
+            FileSendService.ValidateFiles(request.Files);
+        }
+        catch (ArgumentException ex)
+        {
+            throw new ApplicationFailureException(
+                ex.Message,
+                errorType: nameof(ArgumentException),
+                nonRetryable: true);
+        }
+
         var files = new List<UploadedFile>(request.Files.Count);
         long inlineContentLength = 0;
 
@@ -127,6 +172,11 @@ internal class MessageActivityExecutor : ContextAwareActivityExecutor<MessageAct
                 nonRetryable: true);
         }
 
+        return WithFiles(request, files);
+    }
+
+    private static SendFileRequest WithFiles(SendFileRequest request, IReadOnlyList<UploadedFile> files)
+    {
         return new SendFileRequest
         {
             ParticipantId = request.ParticipantId,

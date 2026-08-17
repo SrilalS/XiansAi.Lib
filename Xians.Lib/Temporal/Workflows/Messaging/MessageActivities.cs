@@ -349,6 +349,50 @@ public class MessageActivities
     }
 
     /// <summary>
+    /// Uploads any inline file bytes to the platform and returns the files as references.
+    /// Delegates to shared MessageService.
+    /// </summary>
+    /// <remarks>
+    /// Kept separate from <see cref="SendFileAsync"/> so the upload is recorded in workflow history
+    /// on its own. Retrying the outbound message then reuses these references instead of storing a
+    /// second copy of every byte.
+    /// </remarks>
+    [Activity]
+    public async Task<List<UploadedFile>> UploadFilesAsync(SendFileRequest request)
+    {
+        ActivityExecutionContext.Current.Logger.LogDebug(
+            "UploadFiles activity started: FileCount={FileCount}, RequestId={RequestId}",
+            request.Files.Count,
+            request.RequestId);
+
+        try
+        {
+            var references = await _messageService.UploadFilesAsync(request);
+
+            ActivityExecutionContext.Current.Logger.LogDebug(
+                "Files resolved to references: Count={Count}, RequestId={RequestId}",
+                references.Count,
+                request.RequestId);
+
+            return references;
+        }
+        catch (ArgumentException ex)
+        {
+            ActivityExecutionContext.Current.Logger.LogError(ex,
+                "Invalid files supplied: RequestId={RequestId}",
+                request.RequestId);
+            throw AsNonRetryable(ex);
+        }
+        catch (Exception ex)
+        {
+            ActivityExecutionContext.Current.Logger.LogError(ex,
+                "Error uploading files: RequestId={RequestId}",
+                request.RequestId);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Uploads any inline file bytes to the platform and sends an outbound File message
     /// referencing them.
     /// Delegates to shared MessageService.
@@ -369,6 +413,13 @@ public class MessageActivities
                 "Files sent successfully: RequestId={RequestId}",
                 request.RequestId);
         }
+        catch (ArgumentException ex)
+        {
+            ActivityExecutionContext.Current.Logger.LogError(ex,
+                "Invalid files supplied: RequestId={RequestId}",
+                request.RequestId);
+            throw AsNonRetryable(ex);
+        }
         catch (Exception ex)
         {
             ActivityExecutionContext.Current.Logger.LogError(ex,
@@ -376,6 +427,18 @@ public class MessageActivities
                 request.RequestId);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Marks a caller-input failure as non-retryable so it does not consume the activity's retry
+    /// budget on a request that can never succeed.
+    /// </summary>
+    private static Temporalio.Exceptions.ApplicationFailureException AsNonRetryable(ArgumentException ex)
+    {
+        return new Temporalio.Exceptions.ApplicationFailureException(
+            ex.Message,
+            errorType: nameof(ArgumentException),
+            nonRetryable: true);
     }
 
     /// <summary>

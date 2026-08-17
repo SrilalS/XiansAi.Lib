@@ -18,12 +18,15 @@ internal class MessageService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger _logger;
-    private FileSendService? _fileSendService;
+    private readonly FileSendService _fileSendService;
 
     public MessageService(HttpClient httpClient, ILogger logger)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        // A single instance is shared by concurrent activity executions, so this cannot be a
+        // lazily assigned field.
+        _fileSendService = new FileSendService(_httpClient, _logger, this);
     }
 
     /// <summary>
@@ -186,8 +189,21 @@ internal class MessageService
         SendFileRequest request,
         CancellationToken cancellationToken = default)
     {
-        _fileSendService ??= new FileSendService(_httpClient, _logger, this);
         return _fileSendService.SendAsync(request, cancellationToken);
+    }
+
+    /// <summary>
+    /// Uploads any inline file bytes and returns the files as references, without sending a message.
+    /// Lets the caller record the upload before attempting the outbound message, so a failed send
+    /// can be retried without storing the bytes twice.
+    /// </summary>
+    /// <param name="request">The send file request containing the participant, routing info and files.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public Task<List<UploadedFile>> UploadFilesAsync(
+        SendFileRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        return _fileSendService.UploadAndGetReferencesAsync(request, cancellationToken);
     }
 
     /// <summary>

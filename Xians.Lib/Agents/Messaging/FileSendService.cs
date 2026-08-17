@@ -33,6 +33,29 @@ internal class FileSendService
         _messageService = messageService ?? new MessageService(httpClient, logger);
     }
 
+    /// <summary>
+    /// Uploads any file that does not already carry a <see cref="UploadedFile.FileId"/> and returns
+    /// the whole list, in the original order, as reference-only files.
+    /// </summary>
+    /// <remarks>
+    /// Exists so callers can persist the upload result before posting the outbound message. Posting
+    /// is the step most likely to fail, and retrying a combined upload-then-post would store a
+    /// second copy of every byte and orphan the first.
+    /// </remarks>
+    public async Task<List<UploadedFile>> UploadAndGetReferencesAsync(
+        SendFileRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ValidateFiles(request.Files);
+
+        var refs = await ResolveReferencesAsync(request, cancellationToken);
+
+        return refs
+            .Select(r => new UploadedFile(null, r.FileName, r.ContentType, r.FileSize, r.FileId))
+            .ToList();
+    }
+
     public async Task SendAsync(SendFileRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -61,7 +84,13 @@ internal class FileSendService
         await _messageService.SendAsync(sendRequest, cancellationToken);
     }
 
-    private static void ValidateFiles(IReadOnlyList<UploadedFile>? files)
+    /// <summary>
+    /// Validates the attachment count, names and sizes. Every failure here is caused by the caller's
+    /// input and cannot be fixed by retrying, which is why callers on the workflow path run this
+    /// before scheduling an activity.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when the files cannot be sent as given.</exception>
+    internal static void ValidateFiles(IReadOnlyList<UploadedFile>? files)
     {
         if (files == null || files.Count == 0)
         {
