@@ -16,6 +16,14 @@ internal class FileSendService
     private const long MaxFileSizeBytes = 10L * 1024 * 1024;
     private const long MaxTotalSizeBytes = 20L * 1024 * 1024;
     private const string DefaultContentType = "application/octet-stream";
+    internal const int MaxFileNameLength = 255;
+
+    /// <summary>
+    /// Hard-coded rather than taken from <see cref="Path.GetInvalidFileNameChars"/>, whose contents
+    /// differ per operating system: a name accepted by a Linux worker must not be rejected by a
+    /// Windows one.
+    /// </summary>
+    private static readonly char[] InvalidFileNameChars = { '/', '\\', '\0' };
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -110,10 +118,7 @@ internal class FileSendService
                 throw new ArgumentException("Each file must be a valid UploadedFile", nameof(files));
             }
 
-            if (string.IsNullOrWhiteSpace(file.FileName))
-            {
-                throw new ArgumentException("Each file must include a fileName", nameof(files));
-            }
+            ValidateFileName(file.FileName, nameof(files));
 
             if (string.IsNullOrEmpty(file.FileId) && string.IsNullOrEmpty(file.Content))
             {
@@ -132,6 +137,34 @@ internal class FileSendService
         if (totalBytes > MaxTotalSizeBytes)
         {
             throw new ArgumentException("Combined attachments exceed the 20MB per-message limit", nameof(files));
+        }
+    }
+
+    /// <summary>
+    /// Validates a single attachment name. Applies to referenced files as well as uploads: the name
+    /// reaches the storage API and is rendered by every client that shows the outbound message, and
+    /// it is often a name chosen by whoever uploaded the file in the first place.
+    /// </summary>
+    /// <exception cref="ArgumentException">Thrown when the name cannot be used as given.</exception>
+    internal static void ValidateFileName(string? fileName, string paramName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            throw new ArgumentException("Each file must include a fileName", paramName);
+        }
+
+        if (fileName.Length > MaxFileNameLength
+            || fileName.IndexOfAny(InvalidFileNameChars) >= 0
+            || fileName.Any(char.IsControl)
+            || fileName is "." or "..")
+        {
+            // Control characters are dropped from the message so a crafted name cannot forge extra
+            // lines in whatever log the exception ends up in.
+            var display = new string(fileName.Where(c => !char.IsControl(c)).ToArray());
+            throw new ArgumentException(
+                $"File name \"{display}\" is not valid: path separators and control characters are not " +
+                $"allowed, and a fileName must be {MaxFileNameLength} characters or fewer",
+                paramName);
         }
     }
 

@@ -64,10 +64,7 @@ public class UploadedFile
     public static UploadedFile FromBytes(byte[] content, string fileName, string? contentType = null)
     {
         ArgumentNullException.ThrowIfNull(content);
-        if (string.IsNullOrWhiteSpace(fileName))
-        {
-            throw new ArgumentException("fileName is required.", nameof(fileName));
-        }
+        FileSendService.ValidateFileName(fileName, nameof(fileName));
 
         var resolvedType = string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType;
         return new UploadedFile(

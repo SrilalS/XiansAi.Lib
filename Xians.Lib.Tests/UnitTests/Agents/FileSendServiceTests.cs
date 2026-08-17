@@ -152,6 +152,88 @@ public class FileSendServiceTests
         Assert.Contains("fileName", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// A file name is frequently one the agent did not choose (forwarding a client upload), and it
+    /// travels to the storage API and into every client that renders the outbound message.
+    /// </summary>
+    [Theory]
+    [InlineData("../../etc/passwd")]
+    [InlineData("..\\..\\windows\\system32\\config")]
+    [InlineData("reports/quarterly.pdf")]
+    [InlineData("reports\\quarterly.pdf")]
+    [InlineData("..")]
+    [InlineData(".")]
+    [InlineData("report\r\nContent-Type: text/html")]
+    [InlineData("report\0.pdf")]
+    public async Task SendAsync_UnsafeFileName_ThrowsWithoutUploading(string fileName)
+    {
+        var file = new UploadedFile(Convert.ToBase64String(new byte[] { 1 }), fileName, "application/pdf", 1, null);
+        var handler = new RecordingHandler();
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(
+            () => CreateService(handler).SendAsync(CreateRequest(file)));
+
+        Assert.Contains("not valid", ex.Message);
+        Assert.Empty(handler.Requests);
+    }
+
+    /// <summary>
+    /// The rules must not depend on the operating system the worker happens to run on, so they are
+    /// not derived from Path.GetInvalidFileNameChars.
+    /// </summary>
+    [Theory]
+    [InlineData("quarterly report (final).pdf")]
+    [InlineData("réport-2026_v2.pdf")]
+    [InlineData("data:snapshot?v=2*.csv")]
+    [InlineData("archive.tar.gz")]
+    public void ValidateFileName_AllowsPlainNames(string fileName)
+    {
+        FileSendService.ValidateFileName(fileName, "files");
+    }
+
+    [Fact]
+    public async Task SendAsync_OverlongFileName_Throws()
+    {
+        var fileName = new string('a', FileSendService.MaxFileNameLength + 1) + ".pdf";
+        var file = new UploadedFile(Convert.ToBase64String(new byte[] { 1 }), fileName, "application/pdf", 1, null);
+
+        var ex = await Assert.ThrowsAsync<ArgumentException>(
+            () => CreateService(new RecordingHandler()).SendAsync(CreateRequest(file)));
+        Assert.Contains(FileSendService.MaxFileNameLength.ToString(), ex.Message);
+    }
+
+    [Fact]
+    public async Task SendAsync_ReferencedFileWithUnsafeName_Throws()
+    {
+        var file = new UploadedFile(null, "../../escape.pdf", "application/pdf", 10, "existing-id");
+
+        await Assert.ThrowsAsync<ArgumentException>(
+            () => CreateService(new RecordingHandler()).SendAsync(CreateRequest(file)));
+    }
+
+    /// <summary>
+    /// Control characters would otherwise let a crafted name forge extra lines in any log the
+    /// exception is written to.
+    /// </summary>
+    [Fact]
+    public void ValidateFileName_DoesNotEchoControlCharacters()
+    {
+        var ex = Assert.Throws<ArgumentException>(
+            () => FileSendService.ValidateFileName("report\r\nFAKE LOG LINE.pdf", "files"));
+
+        Assert.DoesNotContain("\r", ex.Message);
+        Assert.DoesNotContain("\n", ex.Message);
+        Assert.Contains("FAKE LOG LINE.pdf", ex.Message);
+    }
+
+    [Fact]
+    public void FromBytes_UnsafeFileName_ThrowsAtConstruction()
+    {
+        var ex = Assert.Throws<ArgumentException>(
+            () => UploadedFile.FromBytes([1, 2, 3], "../../etc/passwd", "application/pdf"));
+        Assert.Equal("fileName", ex.ParamName);
+    }
+
     [Fact]
     public async Task SendAsync_OversizeFile_Throws()
     {

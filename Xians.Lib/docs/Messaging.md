@@ -334,6 +334,9 @@ Send files from a message handler (`OnUserChatMessage`, `OnFileUpload`, …), fr
 | Size per file | 10 MB |
 | Combined size | 20 MB |
 | Combined size of new files, from workflow code | ~1 MB |
+| File name length | 255 chars |
+
+Every attachment needs a file name, and it must be a plain name: path separators (`/`, `\`) and control characters are rejected. This applies to files you forward by reference too, since the name you pass is the one stored and shown to the user. When relaying a name that came from a client upload, expect `ArgumentException` for names you did not choose.
 
 ```csharp
 workflow.OnUserChatMessage(async (context) =>
