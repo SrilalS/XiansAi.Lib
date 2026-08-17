@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Xians.Lib.Agents.Messaging;
 
 /// <summary>
@@ -36,6 +38,11 @@ public class UploadedFile
     {
     }
 
+    /// <summary>
+    /// Also used by System.Text.Json, so files survive the round trip through a Temporal
+    /// activity payload when <c>SendFileAsync</c> is called from workflow code.
+    /// </summary>
+    [JsonConstructor]
     public UploadedFile(string? content, string? fileName, string? contentType, long? fileSize, string? fileId)
     {
         // Content may be empty for reference-only files, but a file must have either content or a fileId.

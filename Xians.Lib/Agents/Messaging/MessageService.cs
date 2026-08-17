@@ -18,6 +18,7 @@ internal class MessageService
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger _logger;
+    private FileSendService? _fileSendService;
 
     public MessageService(HttpClient httpClient, ILogger logger)
     {
@@ -173,6 +174,20 @@ internal class MessageService
                 throw; // Re-throw after exhausting retries
             }
         }
+    }
+
+    /// <summary>
+    /// Uploads any inline file bytes to the platform and sends an outbound File message that
+    /// references them.
+    /// </summary>
+    /// <param name="request">The send file request containing the participant, routing info and files.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    public Task SendFileAsync(
+        SendFileRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        _fileSendService ??= new FileSendService(_httpClient, _logger, this);
+        return _fileSendService.SendAsync(request, cancellationToken);
     }
 
     /// <summary>

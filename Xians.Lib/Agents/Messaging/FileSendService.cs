@@ -8,7 +8,7 @@ namespace Xians.Lib.Agents.Messaging;
 
 /// <summary>
 /// Uploads file bytes to the platform (GridFS) then posts an outbound File message with references only.
-/// Must only run in activity/handler context — never as a Temporal activity with file bytes in the payload.
+/// Runs on the HTTP path only: either directly from a handler or inside the SendFile activity.
 /// </summary>
 internal class FileSendService
 {
@@ -26,11 +26,11 @@ internal class FileSendService
     private readonly ILogger _logger;
     private readonly MessageService _messageService;
 
-    public FileSendService(HttpClient httpClient, ILogger logger)
+    public FileSendService(HttpClient httpClient, ILogger logger, MessageService? messageService = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
-        _messageService = new MessageService(httpClient, logger);
+        _messageService = messageService ?? new MessageService(httpClient, logger);
     }
 
     public async Task SendAsync(SendFileRequest request, CancellationToken cancellationToken = default)

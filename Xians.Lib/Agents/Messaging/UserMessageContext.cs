@@ -91,7 +91,7 @@ public class UserMessageContext
 
     /// <summary>
     /// Sends a text reply with a file in the same conversation message (one Agent Studio bubble).
-    /// Equivalent to <see cref="SendFileAsync(UploadedFile, string?)"/>. Handler or activity only — not workflow code.
+    /// Equivalent to <see cref="SendFileAsync(UploadedFile, string?)"/>.
     /// </summary>
     public virtual Task ReplyAsync(string text, UploadedFile file)
     {
@@ -103,7 +103,6 @@ public class UserMessageContext
     /// Sends a text reply, optionally with files in the same conversation message (one Agent Studio bubble).
     /// When <paramref name="files"/> is null or empty, this is a normal chat reply.
     /// When files are present, equivalent to <see cref="SendFileAsync(IReadOnlyList{UploadedFile}, string?)"/>.
-    /// Handler or activity only when sending files — not workflow code.
     /// </summary>
     public virtual Task ReplyAsync(string text, IReadOnlyList<UploadedFile>? files)
     {
@@ -164,7 +163,7 @@ public class UserMessageContext
 
     /// <summary>
     /// Sends a file the agent produced (raw bytes) to the user.
-    /// Must be called from a message handler or activity, not from workflow code.
+    /// Works in both workflow and activity contexts.
     /// </summary>
     public virtual Task SendFileAsync(
         byte[] content,
@@ -178,7 +177,7 @@ public class UserMessageContext
     /// <summary>
     /// Sends a single file to the user. If <see cref="UploadedFile.FileId"/> is set, the file is
     /// forwarded by reference and not re-uploaded.
-    /// Must be called from a message handler or activity, not from workflow code.
+    /// Works in both workflow and activity contexts.
     /// </summary>
     public virtual Task SendFileAsync(UploadedFile file, string? text = null)
     {
@@ -189,7 +188,8 @@ public class UserMessageContext
     /// <summary>
     /// Sends one or more files to the user (maximum 5). Files with a <see cref="UploadedFile.FileId"/>
     /// are forwarded without a second GridFS write; others are uploaded first.
-    /// Must be called from a message handler or activity, not from workflow code.
+    /// Works in both workflow and activity contexts, but from workflow code the bytes of new files
+    /// pass through a Temporal payload and are therefore limited to roughly 1 MB in total.
     /// </summary>
     public virtual async Task SendFileAsync(IReadOnlyList<UploadedFile> files, string? text = null)
     {

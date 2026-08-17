@@ -349,6 +349,36 @@ public class MessageActivities
     }
 
     /// <summary>
+    /// Uploads any inline file bytes to the platform and sends an outbound File message
+    /// referencing them.
+    /// Delegates to shared MessageService.
+    /// </summary>
+    [Activity]
+    public async Task SendFileAsync(SendFileRequest request)
+    {
+        ActivityExecutionContext.Current.Logger.LogDebug(
+            "SendFile activity started: FileCount={FileCount}, RequestId={RequestId}",
+            request.Files.Count,
+            request.RequestId);
+
+        try
+        {
+            await _messageService.SendFileAsync(request);
+
+            ActivityExecutionContext.Current.Logger.LogDebug(
+                "Files sent successfully: RequestId={RequestId}",
+                request.RequestId);
+        }
+        catch (Exception ex)
+        {
+            ActivityExecutionContext.Current.Logger.LogError(ex,
+                "Error sending files: RequestId={RequestId}",
+                request.RequestId);
+            throw;
+        }
+    }
+
+    /// <summary>
     /// Downloads the bytes for any reference-only files (those carrying a fileId but no inline
     /// content) and populates their <see cref="UploadedFile.Content"/> so handlers see resolved files.
     /// </summary>

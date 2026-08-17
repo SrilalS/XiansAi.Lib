@@ -56,8 +56,8 @@ public class SendMessageRequest
 
 /// <summary>
 /// Request object for sending one or more files to a user.
-/// Used only on the HTTP path from activity/handler context — never as a Temporal activity argument,
-/// because file bytes must not pass through Temporal payloads.
+/// When passed as a Temporal activity argument the inline file bytes count towards the server
+/// blob size limit, so files already stored on the platform should carry a fileId only.
 /// </summary>
 public class SendFileRequest
 {
