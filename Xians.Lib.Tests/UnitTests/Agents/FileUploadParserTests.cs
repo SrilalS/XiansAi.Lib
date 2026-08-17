@@ -164,6 +164,29 @@ public class FileUploadParserTests
     }
 
     [Fact]
+    public void UploadedFile_FromBytes_EncodesContentAndMetadata()
+    {
+        var bytes = new byte[] { 1, 2, 3, 4, 5 };
+        var file = UploadedFile.FromBytes(bytes, "report.pdf", "application/pdf");
+
+        Assert.Equal(SampleBase64, file.Content);
+        Assert.Equal("report.pdf", file.FileName);
+        Assert.Equal("application/pdf", file.ContentType);
+        Assert.Equal(5, file.FileSize);
+        Assert.Null(file.FileId);
+        Assert.Equal(bytes, file.GetBytes());
+    }
+
+    [Fact]
+    public void UploadedFile_FromBytes_DefaultsContentType()
+    {
+        var file = UploadedFile.FromBytes(new byte[] { 9 }, "blob.bin");
+
+        Assert.Equal("application/octet-stream", file.ContentType);
+        Assert.Equal(1, file.FileSize);
+    }
+
+    [Fact]
     public void UploadedFile_GetBytes_DecodesBase64()
     {
         var file = new UploadedFile(SampleBase64);

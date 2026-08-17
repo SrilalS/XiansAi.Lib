@@ -1,7 +1,9 @@
+using System.Text.Json.Serialization;
+
 namespace Xians.Lib.Agents.Messaging;
 
 /// <summary>
-/// Represents a single file received via a File message (type="File").
+/// Represents a file received via a File message or prepared for sending with <c>SendFileAsync</c>.
 /// Provides typed access to the base64 content and optional metadata,
 /// removing the need for manual JSON parsing in OnFileUpload handlers.
 /// </summary>
@@ -36,6 +38,11 @@ public class UploadedFile
     {
     }
 
+    /// <summary>
+    /// Also used by System.Text.Json, so files survive the round trip through a Temporal
+    /// activity payload when <c>SendFileAsync</c> is called from workflow code.
+    /// </summary>
+    [JsonConstructor]
     public UploadedFile(string? content, string? fileName, string? contentType, long? fileSize, string? fileId)
     {
         // Content may be empty for reference-only files, but a file must have either content or a fileId.
@@ -48,6 +55,24 @@ public class UploadedFile
         ContentType = contentType;
         FileSize = fileSize;
         FileId = fileId;
+    }
+
+    /// <summary>
+    /// Creates an <see cref="UploadedFile"/> from raw bytes for sending with <c>SendFileAsync</c>.
+    /// Sets <see cref="FileId"/> to null so the SDK will upload the bytes.
+    /// </summary>
+    public static UploadedFile FromBytes(byte[] content, string fileName, string? contentType = null)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        FileSendService.ValidateFileName(fileName, nameof(fileName));
+
+        var resolvedType = string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType;
+        return new UploadedFile(
+            Convert.ToBase64String(content),
+            fileName,
+            resolvedType,
+            content.Length,
+            fileId: null);
     }
 
     /// <summary>

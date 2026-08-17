@@ -55,6 +55,28 @@ public class SendMessageRequest
 }
 
 /// <summary>
+/// Request object for sending one or more files to a user.
+/// When passed as a Temporal activity argument the inline file bytes count towards the server
+/// blob size limit, so files already stored on the platform should carry a fileId only.
+/// </summary>
+public class SendFileRequest
+{
+    public required string ParticipantId { get; set; }
+    public required string WorkflowId { get; set; }
+    public required string WorkflowType { get; set; }
+    public required string RequestId { get; set; }
+    public string? Scope { get; set; }
+    public string? Authorization { get; set; }
+    public string? Text { get; set; }
+    public string? ThreadId { get; set; }
+    public string? Hint { get; set; }
+    public string? Origin { get; set; }
+    public string? TaskId { get; set; }
+    public required string TenantId { get; set; }
+    public required IReadOnlyList<Xians.Lib.Agents.Messaging.UploadedFile> Files { get; set; }
+}
+
+/// <summary>
 /// Request object for retrieving message history via activity.
 /// </summary>
 public class GetMessageHistoryRequest

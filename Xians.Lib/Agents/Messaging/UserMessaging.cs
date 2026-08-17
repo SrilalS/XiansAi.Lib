@@ -152,6 +152,109 @@ internal static class UserMessaging
     }
 
     /// <summary>
+    /// Sends one or more files to a participant using the current workflow context.
+    /// Works in both workflow and activity contexts.
+    /// </summary>
+    /// <param name="participantId">The ID of the participant (user) to send the files to.</param>
+    /// <param name="files">The files to send (maximum 5).</param>
+    /// <param name="text">Optional caption shown with the files.</param>
+    /// <param name="scope">Optional scope for the message.</param>
+    /// <param name="hint">Optional hint for message processing.</param>
+    /// <param name="taskId">Optional task ID to associate with the message.</param>
+    /// <returns>A task representing the async operation.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when not in a workflow or activity context.</exception>
+    public static async Task SendFileAsync(
+        string participantId,
+        IReadOnlyList<UploadedFile> files,
+        string? text = null,
+        string? scope = null,
+        string? hint = null,
+        string? taskId = null)
+    {
+        await SendFileInternalAsync(
+            XiansContext.WorkflowId, XiansContext.WorkflowType, XiansContext.TenantId,
+            participantId, files, text, scope, hint, taskId);
+    }
+
+    /// <summary>
+    /// Sends one or more files to a participant while impersonating a builtin workflow, so the files
+    /// land in that workflow's conversation.
+    /// Works in both workflow and activity contexts.
+    /// </summary>
+    /// <param name="builtInworkflowName">The builtin workflow name to impersonate (e.g., "Supervisor Workflow").</param>
+    /// <param name="participantId">The ID of the participant (user) to send the files to.</param>
+    /// <param name="files">The files to send (maximum 5).</param>
+    /// <param name="text">Optional caption shown with the files.</param>
+    /// <param name="scope">Optional scope for the message.</param>
+    /// <param name="hint">Optional hint for message processing.</param>
+    /// <param name="taskId">Optional task ID to associate with the message.</param>
+    /// <returns>A task representing the async operation.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when not in a workflow or activity context.</exception>
+    public static async Task SendFileAsWorkflowAsync(
+        string builtInworkflowName,
+        string participantId,
+        IReadOnlyList<UploadedFile> files,
+        string? text = null,
+        string? scope = null,
+        string? hint = null,
+        string? taskId = null)
+    {
+        if (string.IsNullOrWhiteSpace(builtInworkflowName))
+        {
+            throw new ArgumentException("Workflow type cannot be null or empty.", nameof(builtInworkflowName));
+        }
+
+        var agentName = XiansContext.CurrentAgent.Name;
+
+        await SendFileInternalAsync(
+            XiansContext.BuildBuiltInWorkflowId(agentName, builtInworkflowName),
+            XiansContext.BuildBuiltInWorkflowType(agentName, builtInworkflowName),
+            XiansContext.TenantId,
+            participantId, files, text, scope, hint, taskId);
+    }
+
+    /// <summary>
+    /// Core file sending implementation. Dispatches through <see cref="MessageActivityExecutor"/>,
+    /// which runs the SendFile activity in workflow context and posts directly otherwise.
+    /// </summary>
+    private static async Task SendFileInternalAsync(
+        string workflowId,
+        string workflowType,
+        string tenantId,
+        string participantId,
+        IReadOnlyList<UploadedFile> files,
+        string? text,
+        string? scope,
+        string? hint,
+        string? taskId)
+    {
+        ArgumentNullException.ThrowIfNull(files);
+
+        if (string.IsNullOrWhiteSpace(participantId))
+        {
+            throw new ArgumentException("Participant ID cannot be null or empty.", nameof(participantId));
+        }
+
+        var request = new SendFileRequest
+        {
+            ParticipantId = participantId,
+            WorkflowId = workflowId,
+            WorkflowType = workflowType,
+            RequestId = Workflow.InWorkflow ? Workflow.NewGuid().ToString() : Guid.NewGuid().ToString(),
+            Scope = scope,
+            Hint = hint,
+            TaskId = taskId,
+            Origin = "agent-initiated",
+            Text = text ?? string.Empty,
+            TenantId = tenantId,
+            Files = files
+        };
+
+        var logger = Common.Infrastructure.LoggerFactory.CreateLogger<MessageActivityExecutor>();
+        await new MessageActivityExecutor(XiansContext.CurrentAgent, logger).SendFileAsync(request);
+    }
+
+    /// <summary>
     /// Retrieves the last task ID for a conversation from the server.
     /// For system-scoped agents, uses tenant ID from workflow context.
     /// Works in both workflow and activity contexts.

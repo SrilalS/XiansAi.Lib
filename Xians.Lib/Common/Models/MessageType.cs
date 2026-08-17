@@ -42,7 +42,13 @@ public enum MessageType
     /// The frontend sends a heartbeat to verify an agent worker is available.
     /// No handler is invoked; the workflow responds immediately with available=true.
     /// </summary>
-    Heartbeat
+    Heartbeat,
+
+    /// <summary>
+    /// File attachment message type for inbound and outbound file transfers.
+    /// Conversation history, SSE, and Temporal carry fileId references only; bytes live in GridFS.
+    /// </summary>
+    File
 }
 
 /// <summary>
