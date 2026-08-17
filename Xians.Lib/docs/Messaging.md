@@ -319,7 +319,7 @@ public class OrderProcessorWorkflow
 |------|----------|-----|
 | **Chat** | Human-readable text | `ReplyAsync()`, `SendChatAsync()` |
 | **Data** | Structured data | `ReplyWithDataAsync()`, `SendDataAsync()` |
-| **File** | Attachments (GridFS refs) | `SendFileAsync()`, or `ReplyAsync(text, file)` |
+| **File** | Attachments (GridFS refs) | `SendFileAsync()`, or `ReplyWithFileAsync(text, file)` |
 
 **Chat messages** are displayed directly to users.  
 **Data messages** may trigger special UI rendering or be processed by client apps.
@@ -339,7 +339,7 @@ Send files from a message handler (`OnUserChatMessage`, `OnFileUpload`, …), fr
 workflow.OnUserChatMessage(async (context) =>
 {
     // Reply + PDF in one bubble (Agent Studio shows caption, then filename + download icon)
-    await context.ReplyAsync(
+    await context.ReplyWithFileAsync(
         "Here is your report.",
         UploadedFile.FromBytes(pdfBytes, "report.pdf", "application/pdf"));
 
@@ -604,7 +604,7 @@ await platform.RunAsync();
 | Pattern | Class | Method | Use Case |
 |---------|-------|--------|----------|
 | **Reply to user** | `UserMessageContext` | `ReplyAsync()` | User sent message |
-| **Send file** | `UserMessageContext` | `SendFileAsync()` | Attach files to a reply |
+| **Send file** | `UserMessageContext` | `SendFileAsync()`, `ReplyWithFileAsync()` | Attach files to a reply |
 | **Reply with data** | `UserMessageContext` | `ReplyWithDataAsync()` | Include structured data |
 | **Proactive chat** | `UserMessaging` | `SendChatAsync()` | Agent initiates |
 | **Proactive data** | `UserMessaging` | `SendDataAsync()` | Agent sends data |

@@ -93,7 +93,12 @@ public class UserMessageContext
     /// Sends a text reply with a file in the same conversation message (one Agent Studio bubble).
     /// Equivalent to <see cref="SendFileAsync(UploadedFile, string?)"/>.
     /// </summary>
-    public virtual Task ReplyAsync(string text, UploadedFile file)
+    /// <remarks>
+    /// Named separately from <see cref="ReplyAsync(string, object?)"/> rather than overloading it:
+    /// an <c>UploadedFile</c> overload of <c>ReplyAsync</c> would make <c>ReplyAsync(text, null)</c>
+    /// ambiguous and break existing callers at compile time.
+    /// </remarks>
+    public virtual Task ReplyWithFileAsync(string text, UploadedFile file)
     {
         ArgumentNullException.ThrowIfNull(file);
         return SendFileAsync(file, text);
@@ -104,7 +109,7 @@ public class UserMessageContext
     /// When <paramref name="files"/> is null or empty, this is a normal chat reply.
     /// When files are present, equivalent to <see cref="SendFileAsync(IReadOnlyList{UploadedFile}, string?)"/>.
     /// </summary>
-    public virtual Task ReplyAsync(string text, IReadOnlyList<UploadedFile>? files)
+    public virtual Task ReplyWithFilesAsync(string text, IReadOnlyList<UploadedFile>? files)
     {
         if (files is { Count: > 0 })
         {

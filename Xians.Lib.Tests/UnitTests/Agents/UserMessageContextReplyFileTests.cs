@@ -7,7 +7,8 @@ using Xians.Lib.Temporal;
 namespace Xians.Lib.Tests.UnitTests.Agents;
 
 /// <summary>
-/// ReplyAsync(text, files) should send one File message (caption + attachments), not a Chat then a File.
+/// ReplyWithFilesAsync(text, files) should send one File message (caption + attachments),
+/// not a Chat then a File. Also guards the overload resolution of ReplyAsync(text, data).
 ///
 /// dotnet test --filter "FullyQualifiedName~UserMessageContextReplyFileTests"
 /// </summary>
@@ -48,12 +49,12 @@ public class UserMessageContextReplyFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReplyAsync_WithFile_SendsFileWithCaption()
+    public async Task ReplyWithFileAsync_SendsFileWithCaption()
     {
         var context = new RecordingContext();
         var file = UploadedFile.FromBytes([1, 2, 3], "schedule.pdf", "application/pdf");
 
-        await context.ReplyAsync("Here is the schedule.", file);
+        await context.ReplyWithFileAsync("Here is the schedule.", file);
 
         Assert.Null(context.ChatText);
         Assert.Equal("Here is the schedule.", context.FileText);
@@ -62,7 +63,7 @@ public class UserMessageContextReplyFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReplyAsync_WithFileList_SendsFilesWithCaption()
+    public async Task ReplyWithFilesAsync_SendsFilesWithCaption()
     {
         var context = new RecordingContext();
         var files = new[]
@@ -71,7 +72,7 @@ public class UserMessageContextReplyFileTests : IDisposable
             UploadedFile.FromBytes([2], "b.pdf", "application/pdf")
         };
 
-        await context.ReplyAsync("Two reports.", files);
+        await context.ReplyWithFilesAsync("Two reports.", files);
 
         Assert.Null(context.ChatText);
         Assert.Equal("Two reports.", context.FileText);
@@ -79,23 +80,42 @@ public class UserMessageContextReplyFileTests : IDisposable
     }
 
     [Fact]
-    public async Task ReplyAsync_WithNullOrEmptyFiles_SendsChatOnly()
+    public async Task ReplyWithFilesAsync_WithNullOrEmptyFiles_SendsChatOnly()
     {
         var context = new RecordingContext();
 
-        await context.ReplyAsync("Just text.", files: null);
+        await context.ReplyWithFilesAsync("Just text.", files: null);
         Assert.Equal("Just text.", context.ChatText);
         Assert.Null(context.Files);
 
         context.Reset();
-        await context.ReplyAsync("Still just text.", Array.Empty<UploadedFile>());
+        await context.ReplyWithFilesAsync("Still just text.", Array.Empty<UploadedFile>());
         Assert.Equal("Still just text.", context.ChatText);
+        Assert.Null(context.Files);
+    }
+
+    /// <summary>
+    /// The file-sending members must not be overloads of ReplyAsync: a null literal in the
+    /// second position has to keep binding to ReplyAsync(string, object?) so that agents written
+    /// against earlier SDK versions still compile.
+    /// </summary>
+    [Fact]
+    public async Task ReplyAsync_WithNullSecondArgument_BindsToDataOverload()
+    {
+        var context = new RecordingContext();
+
+        await context.ReplyAsync("Just text.", null);
+
+        Assert.Equal("Just text.", context.DataText);
+        Assert.Null(context.Data);
         Assert.Null(context.Files);
     }
 
     private sealed class RecordingContext : UserMessageContext
     {
         public string? ChatText { get; private set; }
+        public string? DataText { get; private set; }
+        public object? Data { get; private set; }
         public string? FileText { get; private set; }
         public IReadOnlyList<UploadedFile>? Files { get; private set; }
 
@@ -107,6 +127,8 @@ public class UserMessageContextReplyFileTests : IDisposable
         public void Reset()
         {
             ChatText = null;
+            DataText = null;
+            Data = null;
             FileText = null;
             Files = null;
         }
@@ -114,6 +136,13 @@ public class UserMessageContextReplyFileTests : IDisposable
         public override Task ReplyAsync(string text)
         {
             ChatText = text;
+            return Task.CompletedTask;
+        }
+
+        public override Task ReplyAsync(string text, object? data)
+        {
+            DataText = text;
+            Data = data;
             return Task.CompletedTask;
         }
 

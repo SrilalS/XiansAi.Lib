@@ -120,7 +120,7 @@ conversationalWorkflow.OnFileUpload(async (context) =>
 
     // Handler path: this runs in an activity, so the receipt bytes are posted directly over HTTP.
     var receipt = Encoding.UTF8.GetBytes(string.Join(Environment.NewLine, summaries));
-    await context.ReplyAsync(
+    await context.ReplyWithFileAsync(
         $"Received {files.Count} file(s) with message '{context.Message.Text}' successfully! {string.Join(", ", summaries)}",
         UploadedFile.FromBytes(receipt, "upload-receipt.txt", "text/plain"));
 
