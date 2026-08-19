@@ -92,6 +92,11 @@ public class XiansWorkflow
     public bool Activable => _activable;
 
     /// <summary>
+    /// Gets whether this workflow is a platform built-in (DefineBuiltIn / DefineSupervisor / DefineIntegrator).
+    /// </summary>
+    public bool IsBuiltIn => _isBuiltIn;
+
+    /// <summary>
     /// Gets the task queue name for this workflow.
     /// Calculated lazily based on workflow type, agent settings, and tenant context.
     /// </summary>

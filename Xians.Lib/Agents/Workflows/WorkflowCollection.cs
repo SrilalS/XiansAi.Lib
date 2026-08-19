@@ -273,6 +273,7 @@ public class WorkflowCollection
                 SystemScoped = _agent.SystemScoped,
                 Workers = workflow.Workers,
                 Activable = workflow.Activable,
+                IsBuiltIn = workflow.IsBuiltIn,
                 ActivityDefinitions = [],
                 ParameterDefinitions = ExtractWorkflowParameters(workflow),
                 Source = sourceToUpload
