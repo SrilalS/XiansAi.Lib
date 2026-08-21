@@ -36,6 +36,9 @@ public class WorkflowDefinition
     
     [JsonPropertyName("activable")]
     public bool Activable { get; set; } = true;
+
+    [JsonPropertyName("isBuiltIn")]
+    public bool IsBuiltIn { get; set; } = false;
 }
 
 public class ParameterDefinition

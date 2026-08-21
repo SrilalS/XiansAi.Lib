@@ -118,6 +118,7 @@ public class WorkflowDefinitionUploaderIntegrationTests : IAsyncLifetime
         Assert.Equal(uniqueAgentName, uploadedDefinition.Agent);
         Assert.Equal($"{uniqueAgentName}:Conversational", uploadedDefinition.WorkflowType);
         Assert.Equal("Conversational", uploadedDefinition.Name);
+        Assert.True(uploadedDefinition.IsBuiltIn);
         Assert.False(uploadedDefinition.SystemScoped);
         Assert.Equal(100, uploadedDefinition.Workers); // Default is 100 (Temporal's default)
     }
