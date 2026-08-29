@@ -89,7 +89,7 @@ Logs at or **above** `ConsoleLogLevel` are displayed in the console.
 
 Logs at or **above** `ServerLogLevel` are uploaded to the Xians server.
 
-> **📤 Batch Upload:** Logs are uploaded in batches every **60 seconds** (up to **100 logs per batch**). This means logs may take up to 1 minute to appear on the server. On application shutdown, all pending logs are automatically flushed.
+> **📤 Batch Upload:** Logs are uploaded in batches every **2 seconds** (up to **500 logs per batch**), so the queue drains at up to **250 logs/second**. On application shutdown, all pending logs are automatically flushed.
 
 > **⏰ Retention:** Server logs are retained for **15 days by default** (MongoDB TTL). After 15 days, logs are automatically deleted. To change retention, contact your server admin or modify `mongodb-indexes.yaml`.
 
@@ -206,11 +206,23 @@ var xiansPlatform = await XiansPlatform.InitializeAsync(new ()
 
 Logs are uploaded to the server in **periodic batches**, not immediately:
 
-- **Batch Size:** 100 logs per batch (default)
-- **Upload Interval:** Every 60 seconds (default)
-- **Delay:** Logs may take up to 60 seconds to appear on server
+- **Batch Size:** 500 logs per batch (default)
+- **Upload Interval:** Every 2 seconds (default)
+- **Drain Ceiling:** batch size ÷ interval — 250 logs/second at the defaults
+- **Queue Depth Limit:** 100,000 entries; beyond that the **oldest** are dropped
 - **On Shutdown:** All pending logs are flushed automatically
-- **Retry:** Failed uploads are requeued and retried
+- **Retry:** Failed uploads are requeued and retried (up to 3 attempts per entry)
+
+### The Drain Ceiling Matters
+
+The batch size and interval are not just a latency setting — together they are a hard ceiling on how fast
+the queue can empty. The queue itself is unbounded up to the depth limit, and **every** entry at or above
+`ServerLogLevel` enters it.
+
+If a host produces logs faster than the ceiling, the queue grows for as long as the load lasts *and keeps
+draining at the ceiling afterwards*. That shows up as worker memory climbing with load and not coming back
+when the load stops. Set the ceiling above the rate your host actually produces logs at, or lower
+`ServerLogLevel` so fewer entries are enqueued.
 
 ### Customize Batch Settings (Optional)
 
@@ -219,14 +231,37 @@ using Xians.Lib.Logging;
 
 // Customize batch upload settings
 LoggingServices.ConfigureBatchSettings(
-    batchSize: 50,              // Smaller batches
-    processingIntervalMs: 30000 // Upload every 30 seconds
+    batchSize: 1000,             // Larger batches
+    processingIntervalMs: 2000,  // Upload every 2 seconds -> 500 logs/second
+    maxQueueDepth: 200_000       // Optional: raise the backlog cap
 );
 ```
 
 **When to customize:**
-- Smaller batches + frequent uploads → Critical systems needing near real-time logs
-- Larger batches + less frequent → High-volume systems to reduce API calls
+- Higher ceiling (larger batch, or shorter interval) → hosts producing more than 250 logs/second
+- Lower ceiling → low-volume hosts wanting fewer API calls
+
+Two cautions:
+
+- **Do not shorten the interval below the upload's own latency.** The background thread starts an upload
+  without awaiting it and then sleeps, so a very short interval leaves overlapping requests in flight with
+  nothing bounding their number. Raise the batch size instead.
+- **Batch size raises the request body too.** An entry carries its exception's full stack trace, so an
+  error-heavy batch is far larger than an average one.
+
+### Queue Depth Limit and Dropped Logs
+
+The drain ceiling only helps while the server is reachable. If uploads fail, every batch is requeued and
+nothing drains at all — so the queue is capped as a backstop. At the limit the **oldest** entries are
+dropped, keeping the most recent diagnostics, and a warning is written to stderr at most once a minute.
+
+```csharp
+// Non-zero means the server has been unreachable, or logs are being produced
+// faster than the configured ceiling can upload them.
+long dropped = LoggingServices.DroppedLogCount;
+
+var (queued, retrying) = LoggingServices.GetLoggingStats();
+```
 
 ## Best Practices
 

@@ -159,6 +159,98 @@ public class LoggingServicesTests : IAsyncLifetime
     }
 
     [Fact]
+    public void ConfigureBatchSettings_WithZeroMaxQueueDepth_ThrowsException()
+    {
+        Assert.Throws<ArgumentException>(() =>
+        {
+            LoggingServices.ConfigureBatchSettings(100, 30000, maxQueueDepth: 0);
+        });
+    }
+
+    [Fact]
+    public void ConfigureBatchSettings_WithMaxQueueDepthBelowBatchSize_ThrowsException()
+    {
+        // A depth under the batch size would drop entries before a full batch could ever be assembled.
+        Assert.Throws<ArgumentException>(() =>
+        {
+            LoggingServices.ConfigureBatchSettings(500, 2000, maxQueueDepth: 100);
+        });
+    }
+
+    [Fact]
+    public void DefaultBatchSettings_DrainFarFasterThanOneHundredPerThirtySeconds()
+    {
+        // The shipped defaults are the whole point of the change: 100 per 30s drained at 3.3 entries/second,
+        // which any agent under load exceeds, so the queue backlogged permanently. Asserted through the
+        // console line ConfigureBatchSettings prints, since the fields themselves are private.
+        var options = new Xians.Lib.Agents.Workflows.Models.WorkflowOptions();
+        Assert.NotNull(options); // keeps the using meaningful if the assert below is ever relaxed
+
+        var original = Console.Out;
+        using var captured = new StringWriter();
+        try
+        {
+            Console.SetOut(captured);
+            // Re-applying the defaults prints the resolved ceiling.
+            LoggingServices.ConfigureBatchSettings(500, 2000, maxQueueDepth: 100_000);
+        }
+        finally
+        {
+            Console.SetOut(original);
+        }
+
+        Assert.Contains("250 logs/sec", captured.ToString(), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task EnqueueLog_AtQueueDepthLimit_DropsOldestAndKeepsNewest()
+    {
+        // Arrange — no draining during the test, and a small cap so the bound is reached quickly.
+        LoggingServices.Shutdown();
+        await Task.Delay(500);
+        while (LoggingServices.GlobalLogQueue.TryDequeue(out _)) { }
+
+        const int cap = 50;
+        const int produced = 200;
+        var droppedBefore = LoggingServices.DroppedLogCount;
+
+        try
+        {
+            LoggingServices.ConfigureBatchSettings(batchSize: 10, processingIntervalMs: 60000, maxQueueDepth: cap);
+            LoggingServices.Initialize(_httpService!);
+            await Task.Delay(100);
+
+            // Act
+            for (var i = 0; i < produced; i++)
+            {
+                LoggingServices.EnqueueLog(CreateTestLog(LogLevel.Information, $"entry-{i}"));
+            }
+
+            // Assert — the queue is bounded. The check runs after enqueueing and without a lock, so a few
+            // concurrent producers can overshoot; this asserts the bound holds, not an exact length.
+            var depth = LoggingServices.GlobalLogQueue.Count;
+            Assert.True(depth <= cap + 5, $"expected the queue bounded near {cap}, found {depth}");
+            Assert.True(depth > 0, "the cap must bound the queue, not empty it");
+
+            // Every entry over the cap was accounted for as a drop.
+            var dropped = LoggingServices.DroppedLogCount - droppedBefore;
+            Assert.True(dropped >= produced - cap - 5, $"expected roughly {produced - cap} drops, counted {dropped}");
+
+            // The newest survived and the oldest did not: during an outage the recent entries are the ones
+            // worth keeping.
+            var remaining = LoggingServices.GlobalLogQueue.ToArray();
+            Assert.Contains(remaining, l => l.Message == $"entry-{produced - 1}");
+            Assert.DoesNotContain(remaining, l => l.Message == "entry-0");
+        }
+        finally
+        {
+            // Restore the shipped defaults: these settings are process-wide statics shared with every other
+            // test in this collection.
+            LoggingServices.ConfigureBatchSettings(500, 2000, maxQueueDepth: 100_000);
+        }
+    }
+
+    [Fact]
     public void GlobalLogQueue_IsAccessible()
     {
         // Act

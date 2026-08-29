@@ -125,6 +125,35 @@ await agent.Workflows.DefineBuiltIn(name: "Processing", workers: 1);
 await agent.Workflows.DefineBuiltIn(name: "HighThroughput", workers: 10);
 ```
 
+### Sticky Cache Size (`MaxCachedWorkflows`)
+
+Each worker keeps recently-executed workflow executions in a **sticky cache**, so a task for an execution
+already in the cache continues from where it left off instead of replaying its history. This is normally the
+largest consumer of a worker's memory.
+
+```csharp
+agent.Workflows.DefineCustom<MyWorkflow>(new WorkflowOptions
+{
+    MaxConcurrent = 100,
+    MaxCachedWorkflows = 500   // default
+});
+```
+
+**Why the default is 500 and not Temporal's 10,000.** An agent process runs *one worker per defined
+workflow*, so Temporal's per-worker default lets a handful of definitions retain tens of thousands of
+executions between them — more than a container-sized memory limit allows. A cached execution is mostly
+native memory owned by the SDK core, so it does not appear in a managed heap dump.
+
+**The cache does not shrink on its own.** Eviction is LRU *by count only*: there is no TTL and no
+memory-pressure eviction, and an execution terminated server-side keeps its entry until enough newer
+executions push it out. So this number is what a worker's steady-state footprint is bounded by, not a
+high-water mark it recovers from.
+
+**Tuning.** Lowering it trades memory for CPU and server load — an evicted execution is replayed from
+history the next time a task arrives for it. Raise it for a worker with few, long-lived workflows; lower it
+for one facing many short-lived executions under a tight memory limit. Values below `MaxConcurrent` are
+raised to it, since a cache smaller than the number of tasks in flight would thrash on every one of them.
+
 ## Worker Lifecycle
 
 ### Startup
