@@ -42,8 +42,31 @@ public static class LoggingServices
     // Client for sending logs to API
     private static IHttpClientService? _httpClientService;
     private static readonly string _logApiEndpoint = WorkflowConstants.ApiEndpoints.Logs;
-    private static int _batchSize = 100;
-    private static int _processingIntervalMs = 30000; // 30 seconds - how often to upload logs
+    // Drain throughput. batchSize / processingIntervalMs is a hard ceiling on how fast the queue empties:
+    // 500 per 2s = 250 entries/second. The previous 100 per 30s drained at 3.3/second, which any agent under
+    // real load exceeds - the queue then grows for as long as the load lasts and keeps draining at 3.3/second
+    // afterwards, so worker memory climbs with load and does not come back when it stops.
+    //
+    // The interval is deliberately not shorter. ProcessLogBatch starts an upload without awaiting it and then
+    // sleeps, so an interval below the upload's own latency leaves overlapping requests in flight with nothing
+    // bounding their number.
+    private static int _batchSize = 500;
+    private static int _processingIntervalMs = 2000;
+
+    // Safety valve, not a normal operating point. Even at 250/second the queue is only as bounded as the
+    // server's availability: if uploads fail, every batch is requeued and nothing drains at all. Without a cap
+    // a long outage grows the queue until the process dies. At roughly 1.4 KB per entry this bounds the
+    // backlog at ~135 MB before the oldest entries start being dropped.
+    private static int _maxQueueDepth = 100_000;
+
+    // Entries discarded because the queue was at _maxQueueDepth. Surfaced through DroppedLogCount so a caller
+    // can tell "logs are missing" from "logs were never written". Deliberately not added to GetLoggingStats,
+    // whose tuple shape is public and would break callers that destructure it.
+    private static long _droppedLogCount;
+
+    // Rate-limits the drop warning: at overflow every enqueue drops one, and a message per drop would itself
+    // become the load problem.
+    private static long _lastDropWarningTicks;
     
     // Retry tracking to prevent infinite loops
     private static readonly ConcurrentDictionary<string, int> _logRetryCount = new();
@@ -73,8 +96,8 @@ public static class LoggingServices
             return;
         }
         
-        _globalLogQueue.Enqueue(log);
-        
+        EnqueueBounded(log);
+
         if (!_firstLogEnqueued)
         {
             _firstLogEnqueued = true;
@@ -90,6 +113,63 @@ public static class LoggingServices
     /// Gets the global log queue for direct access.
     /// </summary>
     public static ConcurrentQueue<Log> GlobalLogQueue => _globalLogQueue;
+
+    /// <summary>
+    /// Number of log entries discarded because the queue reached its configured depth limit.
+    /// Non-zero means the server has been unreachable, or logs are being produced faster than
+    /// the configured batch size and interval can upload them.
+    /// </summary>
+    public static long DroppedLogCount => Interlocked.Read(ref _droppedLogCount);
+
+    /// <summary>
+    /// Enqueues one entry and trims the front if the queue is over its depth limit, so the newest diagnostics
+    /// survive an outage rather than the oldest.
+    /// <para>
+    /// Every path that adds to the queue goes through here, including the requeue of a failed upload batch.
+    /// Requeueing cannot exceed the limit on its own — it puts back at most what the upload attempt just took
+    /// out — so this is about keeping one enforcement point rather than fixing a reachable overflow. The limit
+    /// matters most while the server is unreachable, which is exactly when requeueing dominates, and a second
+    /// unbounded entry point into the queue would be an easy thing to reintroduce later.
+    /// </para>
+    /// <para>
+    /// The check runs after enqueueing and without a lock. <c>Count</c> is a snapshot and concurrent producers
+    /// can each observe the same depth, so the queue can sit a few entries either side of the limit — the
+    /// intended precision for a backstop whose job is to bound growth, not to hold an exact length.
+    /// </para>
+    /// </summary>
+    private static void EnqueueBounded(Log log)
+    {
+        _globalLogQueue.Enqueue(log);
+
+        while (_globalLogQueue.Count > _maxQueueDepth && _globalLogQueue.TryDequeue(out _))
+        {
+            WarnOnDrop(Interlocked.Increment(ref _droppedLogCount));
+        }
+    }
+
+    /// <summary>
+    /// Emits at most one drop warning per minute. Console rather than a logger: the logging pipeline is the
+    /// thing that is failing, so routing this through it would enqueue behind the backlog it is reporting.
+    /// </summary>
+    private static void WarnOnDrop(long totalDropped)
+    {
+        var now = DateTime.UtcNow.Ticks;
+        var last = Interlocked.Read(ref _lastDropWarningTicks);
+        if (now - last < TimeSpan.TicksPerMinute)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _lastDropWarningTicks, now, last) != last)
+        {
+            return;
+        }
+
+        Console.Error.WriteLine(
+            $"[LoggingServices] Queue is at its {_maxQueueDepth} entry limit; dropping the oldest logs " +
+            $"({totalDropped} dropped so far). The server is unreachable, or logs are arriving faster than " +
+            $"{_batchSize} per {_processingIntervalMs}ms can upload them.");
+    }
 
     /// <summary>
     /// Initializes the logging services and starts the background processor.
@@ -324,15 +404,15 @@ public static class LoggingServices
             // Skip logs without IDs
             if (string.IsNullOrEmpty(log.Id))
             {
-                _globalLogQueue.Enqueue(log);
+                EnqueueBounded(log);
                 continue;
             }
-            
+
             var retryCount = _logRetryCount.GetOrAdd(log.Id, 0);
             if (retryCount < MAX_RETRIES)
             {
                 _logRetryCount[log.Id] = retryCount + 1;
-                _globalLogQueue.Enqueue(log);
+                EnqueueBounded(log);
             }
             else
             {
@@ -415,21 +495,50 @@ public static class LoggingServices
 
     /// <summary>
     /// Configures logging batch settings.
+    /// <para>
+    /// batchSize / processingIntervalMs is the ceiling on how fast the queue drains. Set it above the rate the
+    /// host actually produces logs at, or the queue backlogs for as long as the load lasts and drains at the
+    /// configured ceiling afterwards.
+    /// </para>
+    /// <para>
+    /// Both values are read by the background thread on every pass, so a change applies without a restart —
+    /// but the thread is already sleeping the previous interval when this is called, so the new cadence starts
+    /// one pass late.
+    /// </para>
     /// </summary>
-    /// <param name="batchSize">Maximum number of logs to send in each batch (default: 100).</param>
-    /// <param name="processingIntervalMs">Interval in milliseconds between uploads (default: 30000).</param>
-    public static void ConfigureBatchSettings(int batchSize, int processingIntervalMs)
+    /// <param name="batchSize">Maximum number of logs to send in each batch (default: 500).</param>
+    /// <param name="processingIntervalMs">Interval in milliseconds between uploads (default: 2000).</param>
+    /// <param name="maxQueueDepth">
+    /// Optional cap on queued entries before the oldest are dropped (default: 100,000). This is the backstop
+    /// for the server being unreachable, when nothing drains at all regardless of the two values above.
+    /// </param>
+    public static void ConfigureBatchSettings(int batchSize, int processingIntervalMs, int? maxQueueDepth = null)
     {
         if (batchSize <= 0)
             throw new ArgumentException("Batch size must be positive", nameof(batchSize));
-        
+
         if (processingIntervalMs <= 0)
             throw new ArgumentException("Processing interval must be positive", nameof(processingIntervalMs));
 
+        if (maxQueueDepth is <= 0)
+            throw new ArgumentException("Max queue depth must be positive", nameof(maxQueueDepth));
+
+        if (maxQueueDepth is int depth && depth < batchSize)
+            throw new ArgumentException(
+                $"Max queue depth ({depth}) must be at least the batch size ({batchSize}), otherwise entries are dropped before a full batch can be assembled.",
+                nameof(maxQueueDepth));
+
         _batchSize = batchSize;
         _processingIntervalMs = processingIntervalMs;
-        
-        Console.WriteLine($"[LoggingServices] Settings updated - Upload interval: {_processingIntervalMs/1000}s, max batch size: {_batchSize}");
+
+        if (maxQueueDepth is int newDepth)
+        {
+            _maxQueueDepth = newDepth;
+        }
+
+        Console.WriteLine(
+            $"[LoggingServices] Settings updated - Upload interval: {_processingIntervalMs}ms, max batch size: {_batchSize} " +
+            $"(ceiling {_batchSize * 1000.0 / _processingIntervalMs:F0} logs/sec), max queue depth: {_maxQueueDepth}");
     }
     
     /// <summary>
@@ -444,6 +553,7 @@ public static class LoggingServices
     
     /// <summary>
     /// Gets statistics about the current logging state.
+    /// See <see cref="DroppedLogCount"/> for entries discarded at the queue depth limit.
     /// </summary>
     /// <returns>A tuple containing (queued logs count, logs with retries count).</returns>
     public static (int QueuedCount, int RetryingCount) GetLoggingStats()
